@@ -1,0 +1,15 @@
+.bundle
+.DS_Store
+.sass-cache
+.gist-cache
+.pygments-cache
+_deploy
+_site
+public
+sass.old
+source.old
+sass.ref
+source.ref
+sass.before*
+source.before*
+source/_stash
