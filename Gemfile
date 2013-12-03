@@ -23,3 +23,5 @@ end
 gem 'term-ansicolor'
 gem 'sinatra'
 gem 'nokogiri'
+gem 'awesome_print'
+gem "deep_merge"

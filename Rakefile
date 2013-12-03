@@ -1,15 +1,15 @@
-##############################################################################
+###########################################################################################
 # Rakefile - Configuration file for rake (http://rake.rubyforge.org/)
-# Time-stamp: <Dim 2013-12-01 17:59 svarrette>
+# Time-stamp: <Mer 2013-12-04 00:33 svarrette>
 #
-# Copyright (c) 2011 Sebastien Varrette <Sebastien.Varrette@uni.lu>
+# Copyright (c) 2013 Sebastien Varrette <Sebastien.Varrette@uni.lu>
 # .             http://varrette.gforge.uni.lu
-#                       ____       _         __ _ _
-#                      |  _ \ __ _| | _____ / _(_) | ___
-#                      | |_) / _` | |/ / _ \ |_| | |/ _ \
-#                      |  _ < (_| |   <  __/  _| | |  __/
-#                      |_| \_\__,_|_|\_\___|_| |_|_|\___|
-#
+#  ____       _         __ _ _           __   ___       _
+# |  _ \ __ _| | _____ / _(_) | ___     / /  / _ \  ___| |_ ___  _ __  _ __ ___  ___ ___
+# | |_) / _` | |/ / _ \ |_| | |/ _ \   / /  | | | |/ __| __/ _ \| '_ \| '__/ _ \/ __/ __|
+# |  _ < (_| |   <  __/  _| | |  __/  / /   | |_| | (__| || (_) | |_) | | |  __/\__ \__ \
+# |_| \_\__,_|_|\_\___|_| |_|_|\___| /_/     \___/ \___|\__\___/| .__/|_|  \___||___/___/
+#                                                               |_|
 # Use 'rake -T' to list the available actions
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,15 +24,17 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-##############################################################################
+##########################################################################################
 
 require "rubygems"
 require "bundler/setup"
 require "stringex"
-
-#require 'rubygems' # required for checking gem presence
-#require 'erb'      # required for module generation
-require 'yaml'     # required for config file parsing
+require "ap"
+require 'pp'
+#require 'rubygems'  # required for checking gem presence
+#require 'erb'       # required for module generation
+require 'yaml'       # required for config file parsing
+require 'deep_merge'
 
 ### Configure colors ###
 begin
@@ -44,24 +46,70 @@ rescue Exception => e
     COLOR = false
 end
 
-# if RUBY_VERSION < '1.9'
-#     abort "*** ERROR *** You should have ruby >= 1.9 ( Hash is ordered starting Ruby 1.9).\n" +
-#         "*** ERROR *** Consider to use RVM (http://beginrescueend.com/) " +
-#         " to switch easily from one version to another"
-# end
+if RUBY_VERSION < '1.9'
+    abort "*** ERROR *** You should have ruby >= 1.9 ( Hash is ordered starting Ruby 1.9).\n" +
+        "*** ERROR *** Consider to use RVM (http://beginrescueend.com/) " +
+        " to switch easily from one version to another"
+end
 
-
+### Local variables and configurations ###
 TOP_SRCDIR  = File.expand_path(File.join(File.dirname(__FILE__), "."))
 REPONAME    = File.basename( TOP_SRCDIR )
 INCLUDE_DIR = "include"
 POW_DIR     = File.expand_path( File.join(ENV['HOME'], '.pow') )
-DEBUG      = ARGV.include?('DEBUG')
+DEBUG       = ARGV.include?('DEBUG')
+CONFIGFILE  = File.join(TOP_SRCDIR, '_config.yml')
+# Customizations
+CUSTOM_CONFIGFILE = File.join(TOP_SRCDIR, INCLUDE_DIR, 'custom_config.yml')
 
-CONFIGFILE = File.join(TOP_SRCDIR, INCLUDE_DIR, 'config.yaml')
+# Default customizations
+::CONFIG = {
+    # Misc Octopress (in fact Jekyll) configs
+    "public_dir"     => "public",   # compiled site directory    
+    "source_dir"     => "source",   # source file directory
+    "blog_index_dir" => "source",   # directory for your blog's index page 
+    "deploy_dir"     => "_deploy",  # deploy directory (for Github pages deployment)
+    "stash_dir"      => "_stash",   # directory to stash posts for speedy generation
+    "posts_dir"      => "_posts",   # directory for blog files
+    "themes_dir"     => ".themes",  # directory for blog files
+    "new_post_ext"   => "md",       # default new post file extension when using the new_post task
+    "new_page_ext"   => "md",       # default new page file extension when using the new_page task
+    "server_port"    => "4000",     # port for preview server eg. localhost:4000
+    # Git-flow
+    :gitflow => {
+        :branches => {
+            :master  => 'production',
+            :develop => 'master'
+        },
+        :prefix => {
+            :feature    => 'feature/',
+            :release    => 'release/',
+            :hotfix     => 'hotfix/',
+            :support    => 'support/',
+            :versiontag => "v",
+        }
+    },
+    # Deployment over SSH via rsync
+    :rsync => {
+        :ssh => {
+            :user => 'user',
+            :host => 'domain.com',
+            :port => 22
+        },
+        :document_root => '',
+        :cmd           => 'rsync',
+        :opts => {
+            :delete => false,
+            :extra  => ''
+        }
+    }
+}
+# Load config file (and the local customization)
+::CONFIG.deep_merge!( YAML::load_file( CONFIGFILE ) ) if File.exists?("#{CONFIGFILE}") 
+::CONFIG.deep_merge!( YAML::load_file( CUSTOM_CONFIGFILE ) ) if File.exists?("#{CUSTOM_CONFIGFILE}")
+#pp ::CONFIG
 
-::CONFIG = YAML::load_file( CONFIGFILE )
-
-# Inheritance from Octopress Rakefile
+# Inheritance from Octopress Rakefile - just here for compatibility reasons
 ## -- Rsync Deploy config -- ##
 # Be sure your public key is listed in your server's ~/.ssh/authorized_keys file
 ssh_user       = "#{::CONFIG[:rsync][:ssh][:user]}@#{::CONFIG[:rsync][:ssh][:host]}"
@@ -75,26 +123,26 @@ deploy_default = "#{::CONFIG[:rsync][:cmd]}"
 #deploy_branch  = "gh-pages"
 
 ## -- Misc Configs -- ##
+public_dir      = "#{::CONFIG['public_dir']}"     # compiled site directory
+source_dir      = "#{::CONFIG['source_dir']}"     # source file directory
+blog_index_dir  = "#{::CONFIG['blog_index_dir']}" # directory for your blog's index page (if you put your index in source/blog/index.html, set this to 'source/blog')
+deploy_dir      = "#{::CONFIG['deploy_dir']}"     # deploy directory (for Github pages deployment)
+stash_dir       = "#{::CONFIG['stash_dir']}"      # directory to stash posts for speedy generation
+posts_dir       = "#{::CONFIG['posts_dir']}"      # directory for blog files
+themes_dir      = "#{::CONFIG['themes_dir']}"     # directory for theme files
+new_post_ext    = "#{::CONFIG['new_post_ext']}"   # default new post file extension when using the new_post task
+new_page_ext    = "#{::CONFIG['new_page_ext']}"   # default new page file extension when using the new_page task
+server_port     = "#{::CONFIG['server_port']}"    # port for preview server eg. localhost:4000
 
-public_dir      = "#{::CONFIG[:octopress][:public_dir]}"     # compiled site directory
-source_dir      = "#{::CONFIG[:octopress][:source_dir]}"     # source file directory
-blog_index_dir  = '#{::CONFIG[:octopress][:blog_index_dir]}' # directory for your blog's index page (if you put your index in source/blog/index.html, set this to 'source/blog')
-deploy_dir      = "#{::CONFIG[:octopress][:deploy_dir]}"     # deploy directory (for Github pages deployment)
-stash_dir       = "#{::CONFIG[:octopress][:stash_dir]}"      # directory to stash posts for speedy generation
-posts_dir       = "#{::CONFIG[:octopress][:posts_dir]}"      # directory for blog files
-themes_dir      = "#{::CONFIG[:octopress][:themes_dir]}"     # directory for theme files
-new_post_ext    = "#{::CONFIG[:octopress][:new_post_ext]}"   # default new post file extension when using the new_post task
-new_page_ext    = "#{::CONFIG[:octopress][:new_page_ext]}"   # default new page file extension when using the new_page task
-server_port     = "#{::CONFIG[:octopress][:server_port]}"    # port for preview server eg. localhost:4000
+##########################################################################################
+################################    Let's go ;)    #######################################
+##########################################################################################
 
-
-
-
+#....................
 namespace "deploy" do
-
-    #############   deploy:site #############
+    #############   deploy:rsync #############
     desc "Deploy the website via rsync"
-    task :rsync do #=> :generate do
+    task :rsync => :generate do
         # Check if preview posts exist, which should not be published
         if File.exists?(".preview-mode")
             info "Found posts in preview mode, regenerating files ..."
@@ -102,61 +150,37 @@ namespace "deploy" do
             Rake::Task[:generate].execute
         end
 
-		srcdir = "#{TOP_SRCDIR}/#{public_dir}"
-		dstdir = "#{document_root}"
-		#rsync_args    = "#{rsync_args} --rsync-path='sudo rsync'"
-		rsync_mode    = (rsync_delete ? "--delete" : "--update")
-		rsync_exclude = "--exclude '.git*' --exclude '.template*' "
-		if File.exists?('./rsync-exclude')
-			rsync_exclude = " --exclude-from '#{File.expand_path('./rsync-exclude')}'"
-		end
+        srcdir = "#{TOP_SRCDIR}/#{public_dir}"
+        dstdir = "#{document_root}"
+        #rsync_args    = "#{rsync_args} --rsync-path='sudo rsync'"
+        rsync_mode    = (rsync_delete ? "--delete" : "--update")
+        rsync_exclude = "--exclude '.git*' --exclude '.template*' "
+        if File.exists?('./rsync-exclude')
+            rsync_exclude = " --exclude-from '#{File.expand_path('./rsync-exclude')}'"
+        end
 
-		run %{
+        run %{
            rsync -e 'ssh -p #{ssh_port} -o ConnectTimeout=5' -avz #{rsync_mode} #{rsync_exclude} #{rsync_args}  #{srcdir}/ #{ssh_user}:#{dstdir}
-           notify Octopress "Deployment of FoC website completed"
+           notify Octopress "Deployment of \'#{::CONFIG['title']}\' website completed"
         }
-
     end
 
-end
+end # namespace 'deploy'
 
 
-
-###########################
+############  generate   ###############
 desc "Generate jekyll site"
 task :generate do
-    raise "### You haven't set anything up yet. First run `rake setup` to set up Octopress." unless File.directory?(source_dir)
+	check_octopress_setup()
     info "Generating Site with Jekyll"
     run %{
        compass compile --css-dir #{source_dir}/stylesheets
        jekyll
-       notify Octopress "Generation of FoC website completed"
+       notify Octopress "Generation of \'#{::CONFIG['title']}\' website completed"
     }
 end
 
-
-##############################################################################
-namespace "collect" do
-    #################   collect:software   #####################
-    desc "Get the list of configured Environment Modules from Gaia"
-    task :software do
-        run %{
-            rsync include/scripts/modules2yaml.py access-gaia.uni.lu:/tmp/
-            ssh access-gaia.uni.lu python /tmp/modules2yaml.py > source/status/module_status.yaml
-        }
-    end
-    #################   collect:status   #####################
-    desc "Get the cluster status files from {chaos,gaia} frontends"
-    task :status do
-        run %{
-            rsync access-gaia.uni.lu:/usr/share/gaia_live_status.yaml source/status/gaia_live_status.yaml
-            rsync access-chaos.uni.lu:/usr/share/chaos_live_status.yaml source/status/chaos_live_status.yaml
-        }
-    end
-end
-
-
-##############################################################################
+#.................
 namespace "git" do
 
     #################   git:init   ################################
@@ -165,17 +189,43 @@ namespace "git" do
         git_flow_init()
     end
 
+	#################   git:submodules  #########
+	desc "Initialize and update Git submodules."
+	task :submodules do
+		puts "======================================================================"
+		puts "Downloading \'#{::CONFIG['title']}\' Website submodules...please wait "
+		puts "======================================================================"
+		run %{
+      cd #{TOP_SRCDIR}
+      git submodule init
+      git submodule update
+      git submodule foreach 'git fetch origin; git checkout $(git rev-parse --abbrev-ref HEAD); git reset --hard origin/$(git rev-parse --abbrev-ref HEAD); git submodule update --recursive; git clean -dfx'
+    }
+	end
+
+end # namespace "git"
+
+##############  info   ###################################################
+desc "Provide various information on this Rakefile configuration"
+task :info  do
+    puts "TOP_SRCDIR   = #{TOP_SRCDIR}"
+    puts "REPONAME     = #{REPONAME}"
+	puts "INCLUDE_DIR  = #{INCLUDE_DIR}"
+    puts "POW_DIR      = #{POW_DIR}"
+	puts "DEBUG        = #{DEBUG}"
+	puts "CONFIGFILE   = #{CONFIGFILE}"
+	puts "CUSTOM_CONFIGFILE = #{CUSTOM_CONFIGFILE}"
+	print "::CONFIG = "
+	ap ::CONFIG
 end
 
-
-
-
+#................
 namespace :new do
-    ##############################################################################
+    #################   new:page    #################################
     # usage rake new_page[my-new-page] or rake new_page[my-new-page.html] or rake new_page (defaults to "new-page.markdown")
     desc "Create a new page in #{source_dir}/(filename)/index.#{new_page_ext}"
     task :page, :filename do |t, args|
-        raise "### You haven't set anything up yet. First run `rake setup` to set up an Octopress theme." unless File.directory?(source_dir)
+        check_octopress_setup()
         args.with_defaults(:filename => 'new-page')
         page_dir = [source_dir]
         if args.filename.downcase =~ /(^.+\/)?(.+)/
@@ -212,7 +262,7 @@ namespace :new do
         end
     end
 
-    ##############
+    ##############   new:post ###########################
     desc "Create a new post in #{source_dir}/#{posts_dir}"
     task :post, :title do |t, args|
         if args.title
@@ -220,7 +270,7 @@ namespace :new do
         else
             title = get_stdin("Enter a title for your post: ")
         end
-        raise "### You haven't set anything up yet. First run `rake install` to set up an Octopress theme." unless File.directory?(source_dir)
+        check_octopress_setup()
         run %{ mkdir -p #{source_dir}/#{posts_dir} }
         filename = "#{source_dir}/#{posts_dir}/#{Time.now.strftime('%Y-%m-%d')}-#{title.to_url}.#{new_post_ext}"
         if File.exist?(filename)
@@ -244,17 +294,20 @@ end
 
 
 ##############################################################################
-desc "Setup your local copy of the repository and install the octopress theme"
-task :setup  => [ :submodules ]  do |t, args|
+desc "Setup your local copy of the repository"
+task :setup  => [ "git:submodules" ]  do |t, args|
     # args.with_defaults(:theme => 'classic')
     # theme = (args[:theme] == 'theme' ? 'classic' : args[:theme])
-    #File.directory?()
-
+   
     info "setup (i.e. bootstrap i.e. install) your local copy of the repository"
     Rake::Task["git:init"].invoke
+	# if File.exists?("#{TOP_SRCDIR}/.rvmrc")
+	# 	rvm_cmd=
+	# end 
+
     run %{
        cd #{TOP_SRCDIR}
-       rvm --create use default@ulhpc_www
+       #rvm --create use default@
        gem install bundler
        bundle install
     }
@@ -268,23 +321,6 @@ task :setup  => [ :submodules ]  do |t, args|
             run %{ ln -sf #{TOP_SRCDIR} #{POW_DIR}/#{REPONAME} }
         end
     end
-end
-
-
-##############################################################################
-desc "Init and update submodules."
-task :submodules do
-    puts "======================================================"
-    puts "Downloading FoC Website submodules...please wait "
-    puts "======================================================"
-
-    run %{
-      cd #{TOP_SRCDIR}
-      git submodule init
-      git submodule update
-      git submodule foreach 'git fetch origin; git checkout master; git reset --hard origin/master; git submodule update --recursive; git clean -dfx'
-    }
-    #git clean -dfx
 end
 
 namespace :theme do
@@ -306,13 +342,13 @@ namespace :theme do
            rsync -avz --exclude "*custom*" #{themes_dir}/#{theme}/source/ #{source_dir}
            rsync -avz --exclude "*custom*" #{themes_dir}/#{theme}/sass/ sass
         }
-		if ask("also copy the custom parts of the theme '#{theme}' ? ", ['y', 'n']) == 'y'
-			run %{ 
+        if ask("also copy the custom parts of the theme '#{theme}' ? ", ['y', 'n']) == 'y'
+            run %{
             rsync -avz  #{themes_dir}/#{theme}/source/ #{source_dir}
             rsync -avz  #{themes_dir}/#{theme}/sass/ sass
             }
-		end 
-   end
+        end
+    end
 
     ################################
     desc "Clean completely a theme"
@@ -458,17 +494,13 @@ end
 
 
 
-#################################################################
-desc "Provide various information on this Rakefile configuration"
-task :info  do
-    puts "TOP_SRCDIR   = #{TOP_SRCDIR}"
-    puts "REPONAME     = #{REPONAME}"
-    puts "POW_DIR       = #{POW_DIR}"
-end
 
 task :DEBUG do
 end
 
+#################################################################
+#################################################################
+#################################################################
 private
 def red(str)
     COLOR == true ? Term::ANSIColor.red(str) : str
@@ -488,8 +520,11 @@ end
 def warn(str)
     puts cyan("/!\\ WARNING: " + str)
 end
+def error_str(str)
+	red("*** ERROR *** " + str)
+end
 def error(str)
-    abort red("*** ERROR *** " + str)
+    abort error_str(str)
 end
 def run(cmds)
     puts bold("[Running] #{cmds}")
@@ -515,9 +550,15 @@ def command?(name)
     $?.success?
 end
 
-##################################
-### Octopress Theme management ###
-##################################
+############################
+### Octopress management ###
+############################
+def check_octopress_setup()
+	unless File.directory?(source_dir)
+		print error_str("You haven't setup anything for Octopress yet\n")
+		error "You shall run `rake setup` and `rake theme:install` to setup Octopress concretely"
+	end
+end
 
 ## List the available themes
 def list_theme(themes_dir)
@@ -560,14 +601,14 @@ end
 
 ## Initialize the local repository to respect the git-flow organization
 def git_flow_init()
-    error("Unable to find 'grb' on your system") unless command?('grb')
+    error "Unable to find 'grb' on your system" unless command?('grb')
     ::CONFIG[:gitflow][:branches].values.each do |branch|
-        info("=> initialize remote tracking of the '#{branch}' branch")
+        info("initialize remote tracking of the '#{branch}' branch")
         verbose(false) {
             run %{grb grab #{branch}}
         }
     end
-    info("=> setup git-flow configuration")
+    info "setup git-flow configuration"
     ::CONFIG[:gitflow][:branches].each do |t,branch|
         verbose(false) { run %{git config gitflow.branch.#{t} #{branch}} }
     end
@@ -582,7 +623,7 @@ def git_flow(name, type = 'feature', action = 'start', optional_args = '')
     error "Invalid action '#{action}'" unless ['start', 'finish'].include?(action)
     error "You must provide a name" if name == ''
     error "The name '#{name}' cannot contain spaces" if name =~ /\s+/
-    sh "git flow #{type} #{action} #{optional_args} #{name}"
+	run %{git flow #{type} #{action} #{optional_args} #{name}}
 end
 
 def git_flow_start(type, name, optional_args = '')
