@@ -1,6 +1,6 @@
 ###########################################################################################
 # Rakefile - Configuration file for rake (http://rake.rubyforge.org/)
-# Time-stamp: <Mer 2013-12-04 00:33 svarrette>
+# Time-stamp: <Mer 2013-12-04 21:21 svarrette>
 #
 # Copyright (c) 2013 Sebastien Varrette <Sebastien.Varrette@uni.lu>
 # .             http://varrette.gforge.uni.lu
@@ -29,12 +29,16 @@
 require "rubygems"
 require "bundler/setup"
 require "stringex"
+require "rake"
 require "ap"
 require 'pp'
 #require 'rubygems'  # required for checking gem presence
 #require 'erb'       # required for module generation
 require 'yaml'       # required for config file parsing
 require 'deep_merge'
+
+#Needed for rake/gem '= 0.9.2.2'
+Rake::TaskManager.record_task_metadata = true
 
 ### Configure colors ###
 begin
@@ -53,21 +57,27 @@ if RUBY_VERSION < '1.9'
 end
 
 ### Local variables and configurations ###
-TOP_SRCDIR  = File.expand_path(File.join(File.dirname(__FILE__), "."))
-REPONAME    = File.basename( TOP_SRCDIR )
-INCLUDE_DIR = "include"
-POW_DIR     = File.expand_path( File.join(ENV['HOME'], '.pow') )
-DEBUG       = ARGV.include?('DEBUG')
-CONFIGFILE  = File.join(TOP_SRCDIR, '_config.yml')
-# Customizations
+TOP_SRCDIR     = File.expand_path(File.join(File.dirname(__FILE__), "."))
+REPONAME       = File.basename( TOP_SRCDIR )
+DEBUG          = ARGV.include?('DEBUG')  # Debugging mode - do not run the commands
+
+INCLUDE_DIR    = "include"
+SUBMODULES_DIR = ".submodules"
+POW_DIR        = File.expand_path( File.join(ENV['HOME'], '.pow') )
+# The below directory will host (after 'rake git:submodules:init') a reference configuration for this
+# Rakefile (useful in case of missed files)
+REFERENCE_SETUP_DIR = "#{SUBMODULES_DIR}/reference_setup"
+
+# Main configuration files
+CONFIGFILE        = File.join(TOP_SRCDIR, '_config.yml')
 CUSTOM_CONFIGFILE = File.join(TOP_SRCDIR, INCLUDE_DIR, 'custom_config.yml')
 
 # Default customizations
 ::CONFIG = {
     # Misc Octopress (in fact Jekyll) configs
-    "public_dir"     => "public",   # compiled site directory    
+    "public_dir"     => "public",   # compiled site directory
     "source_dir"     => "source",   # source file directory
-    "blog_index_dir" => "source",   # directory for your blog's index page 
+    "blog_index_dir" => "source",   # directory for your blog's index page
     "deploy_dir"     => "_deploy",  # deploy directory (for Github pages deployment)
     "stash_dir"      => "_stash",   # directory to stash posts for speedy generation
     "posts_dir"      => "_posts",   # directory for blog files
@@ -102,10 +112,21 @@ CUSTOM_CONFIGFILE = File.join(TOP_SRCDIR, INCLUDE_DIR, 'custom_config.yml')
             :delete => false,
             :extra  => ''
         }
-    }
+    },
+	# Some Octopress configuration components
+	:octopress => {
+		:themes => [ 
+		            'https://github.com/Falkor/octopress-bootstrap.git',
+		            'https://github.com/kAworu/octostrap3.git'
+		           ],
+		:plugins => [
+		             'https://github.com/josephcc/octopress-cumulus.git'
+		            ]
+
+	}
 }
 # Load config file (and the local customization)
-::CONFIG.deep_merge!( YAML::load_file( CONFIGFILE ) ) if File.exists?("#{CONFIGFILE}") 
+::CONFIG.deep_merge!( YAML::load_file( CONFIGFILE ) ) if File.exists?("#{CONFIGFILE}")
 ::CONFIG.deep_merge!( YAML::load_file( CUSTOM_CONFIGFILE ) ) if File.exists?("#{CUSTOM_CONFIGFILE}")
 #pp ::CONFIG
 
@@ -133,6 +154,33 @@ themes_dir      = "#{::CONFIG['themes_dir']}"     # directory for theme files
 new_post_ext    = "#{::CONFIG['new_post_ext']}"   # default new post file extension when using the new_post task
 new_page_ext    = "#{::CONFIG['new_page_ext']}"   # default new page file extension when using the new_page task
 server_port     = "#{::CONFIG['server_port']}"    # port for preview server eg. localhost:4000
+
+
+
+## Git submodules useful for the setup of the repository
+GIT_SUBMODULES = {
+    "#{File.basename( REFERENCE_SETUP_DIR )}" => {
+        :url     => "https://github.com/Falkor/www.git",
+        :destdir => File.dirname( REFERENCE_SETUP_DIR )
+    },
+    'octopress' => {
+        :url     => "git://github.com/imathis/octopress.git",
+        :destdir => "#{INCLUDE_DIR}"
+    },
+    # 'octopress-bootstrap' => {
+    #     :url     => "https://github.com/Falkor/octopress-bootstrap.git",
+    #     :destdir => "#{themes_dir}"
+    # },
+    # 'octostrap3' => {
+    #     :url     => "https://github.com/kAworu/octostrap3.git",
+    #     :destdir => "#{themes_dir}"
+    # },
+    # 'octopress-cumulus' => {
+    #     :url     => "https://github.com/josephcc/octopress-cumulus.git",
+    #     :destdir => "#{INCLUDE_DIR}/3rdparty_plugins"
+    # }
+}
+
 
 ##########################################################################################
 ################################    Let's go ;)    #######################################
@@ -171,7 +219,7 @@ end # namespace 'deploy'
 ############  generate   ###############
 desc "Generate jekyll site"
 task :generate do
-	check_octopress_setup()
+    check_octopress_setup()
     info "Generating Site with Jekyll"
     run %{
        compass compile --css-dir #{source_dir}/stylesheets
@@ -183,25 +231,60 @@ end
 #.................
 namespace "git" do
 
-    #################   git:init   ################################
-    desc "Initialize your local clone of the repository for the git-flow management"
-    task :init do
-        git_flow_init()
+    #..................
+    namespace "flow" do
+        #################   git:flow:init   ################################
+        desc "Initialize your local clone of the repository for the git-flow management"
+        task :init do
+            #git_flow_init()
+        end
+
     end
 
-	#################   git:submodules  #########
-	desc "Initialize and update Git submodules."
-	task :submodules do
-		puts "======================================================================"
-		puts "Downloading \'#{::CONFIG['title']}\' Website submodules...please wait "
-		puts "======================================================================"
-		run %{
-      cd #{TOP_SRCDIR}
-      git submodule init
-      git submodule update
-      git submodule foreach 'git fetch origin; git checkout $(git rev-parse --abbrev-ref HEAD); git reset --hard origin/$(git rev-parse --abbrev-ref HEAD); git submodule update --recursive; git clean -dfx'
-    }
-	end
+
+    #........................
+    namespace "submodules" do
+        desc "Initialize the Git submodules required for this setup"
+        task :init do |task|
+            info task.comment
+			run %{ 
+               git submodule init
+               git submodule update
+            }
+            raise "No submodule to configure" if GIT_SUBMODULES.nil?
+            GIT_SUBMODULES.each do |name, config|
+                unless File.directory?("#{config[:destdir]}/#{name}")
+                    info "bootstrapping Git submodule '#{name}' in #{config[:destdir]}"
+                    run %{
+                git submodule add #{config[:url]} #{config[:destdir]}/#{name}
+                git commit -s -a -m 'add Git submodule #{name} in #{config[:destdir]}'
+                    }
+                else
+                    puts "   ... Git submodule #{name} already initialized"
+                end
+            end
+        end
+
+
+
+        #################   git:submodules:update  #########
+        desc "Update Git submodules."
+        task :update => :init do
+            puts "======================================================================"
+            puts "Updating \'#{::CONFIG['title']}\' Website Git submodules...please wait "
+            puts "======================================================================"
+            run %{
+        cd #{TOP_SRCDIR}
+        git submodule init
+        git submodule update
+        git submodule foreach 'git fetch origin; git checkout $(git rev-parse --abbrev-ref HEAD); git reset --hard origin/$(git rev-parse --abbrev-ref HEAD); git submodule update --recursive; git clean -dfx'
+            }
+        end
+
+
+    end # namespace submodules
+
+
 
 end # namespace "git"
 
@@ -210,13 +293,13 @@ desc "Provide various information on this Rakefile configuration"
 task :info  do
     puts "TOP_SRCDIR   = #{TOP_SRCDIR}"
     puts "REPONAME     = #{REPONAME}"
-	puts "INCLUDE_DIR  = #{INCLUDE_DIR}"
+    puts "INCLUDE_DIR  = #{INCLUDE_DIR}"
     puts "POW_DIR      = #{POW_DIR}"
-	puts "DEBUG        = #{DEBUG}"
-	puts "CONFIGFILE   = #{CONFIGFILE}"
-	puts "CUSTOM_CONFIGFILE = #{CUSTOM_CONFIGFILE}"
-	print "::CONFIG = "
-	ap ::CONFIG
+    puts "DEBUG        = #{DEBUG}"
+    puts "CONFIGFILE   = #{CONFIGFILE}"
+    puts "CUSTOM_CONFIGFILE = #{CUSTOM_CONFIGFILE}"
+    print "::CONFIG = "
+    ap ::CONFIG
 end
 
 #................
@@ -295,22 +378,49 @@ end
 
 ##############################################################################
 desc "Setup your local copy of the repository"
-task :setup  => [ "git:submodules" ]  do |t, args|
-    # args.with_defaults(:theme => 'classic')
-    # theme = (args[:theme] == 'theme' ? 'classic' : args[:theme])
-   
-    info "setup (i.e. bootstrap i.e. install) your local copy of the repository"
-    Rake::Task["git:init"].invoke
-	# if File.exists?("#{TOP_SRCDIR}/.rvmrc")
-	# 	rvm_cmd=
-	# end 
+task :setup  => [ "git:flow:init", "git:submodules:init" ]  do |t, args|
 
+    info "setup (i.e. bootstrap i.e. install) your local copy of the repository"
+
+    # Bootstrap RVM
+    error "You need to install RVM" unless command?('rvm')
+    rvm_default_gemset_cmd = "rvm --create use default@#{REPONAME}"
+    unless File.exists?("#{TOP_SRCDIR}/.rvmrc")
+        File.open("#{TOP_SRCDIR}/.rvmrc", "w") do |f|
+            f.puts rvm_default_gemset_cmd
+        end
+        run %{
+          git add #{TOP_SRCDIR}/.rvmrc
+          git commit -s -m 'add .rvmrc for this project'
+        }
+    end
+    rvm_cmd = `grep 'rvm' #{TOP_SRCDIR}/.rvmrc | grep use | grep create`
+    rvm_cmd = rvm_default_gemset_cmd if rvm_cmd.empty?
+
+    # install default gems
     run %{
-       cd #{TOP_SRCDIR}
-       #rvm --create use default@
-       gem install bundler
-       bundle install
+        cd #{TOP_SRCDIR}
+        bash -l -c "#{rvm_cmd.chomp}"
+        bundle install 
     }
+
+    # initialise the themes
+	::CONFIG[:octopress][:themes].each do |url| 
+		Rake::Task["theme:source:install"].reenable
+		Rake::Task["theme:source:install"].invoke( "#{url}" )
+	end
+
+
+
+
+    # # bootstrap Gemfile
+    # unless File.exists?("#{TOP_SRCDIR}/Gemfile")
+    #     warn "Gemfile is not present - do you want to setup one for Octopress?"
+    #     really_continue?
+	    
+    # end
+
+
     if (`uname`.chomp == 'Darwin')
         unless File.directory?("#{POW_DIR}")
             info "install [POW](http://pow.cx)"
@@ -324,7 +434,7 @@ task :setup  => [ "git:submodules" ]  do |t, args|
 end
 
 namespace :theme do
-    ##############################################################################
+    ###################   theme:install  ##################################
     desc "Install an octopress theme (eventiually installed previously as source via 'rake theme:source:install')"
     task :install do |t, args|
         theme = list_theme(themes_dir)
@@ -350,7 +460,7 @@ namespace :theme do
         end
     end
 
-    ################################
+    ##############  theme:clean  ##################
     desc "Clean completely a theme"
     task :clean do
         theme = list_theme(themes_dir)
@@ -408,11 +518,12 @@ namespace :theme do
         warn "=> consider commiting your changes"
     end
 
+    #.....................
     namespace :source do
-        ##################################
+        ##############  theme:source:install  ####################
         desc "Install a new theme source"
         task :install, :url do |t, args|
-            if args.url
+			if args.url
                 url = args.url
             else
                 url = get_stdin("Enter a git repository url for the theme: ")
@@ -420,16 +531,20 @@ namespace :theme do
             abort("Not a git url") unless url =~ /\.git$/
             theme = File.basename("#{url}").gsub(/\.git$/, '')
             error("Empty theme name") unless theme
-            error("The theme '#{theme}' already exists") if File.directory?("#{themes_dir}/#{theme}")
-            info "about to install the theme '#{theme}' from the git repository #{url}"
-            really_continue?
-            run %{
-               git submodule add #{url} #{themes_dir}/#{theme}
-               git commit -s -m "[theme] add new theme '#{theme}' from git source" .gitmodules #{themes_dir}/#{theme}
-            }
+			info "#{t.comment} for the theme '#{theme}'" 
+			if File.directory?("#{themes_dir}/#{theme}")
+				warn "The theme '#{theme}' already exists"
+			else 
+				info "about to install the theme '#{theme}' from the git repository #{url}"
+				really_continue?
+				run %{
+                git submodule add #{url} #{themes_dir}/#{theme}
+                git commit -s -m "[theme] add new theme '#{theme}' from git source" .gitmodules #{themes_dir}/#{theme}
+                }
+			end 
         end
 
-        ##################################
+        ###############  theme:source:delete  ###################
         desc "Delete a theme source"
         task :delete  do |t, args|
             theme = list_theme(themes_dir)
@@ -457,14 +572,11 @@ namespace :theme do
             }
 
         end
-    end
+    end # namespace theme:source
 
+end # namespace theme
 
-
-
-end
-
-##############################################################################
+##########################  watch    ###########################
 desc "Watch the site (using POW) and regenerate when it changes"
 task :watch do
     raise "### You haven't set anything up yet. First run `rake setup` to set up your local site." unless File.directory?(source_dir)
@@ -521,7 +633,7 @@ def warn(str)
     puts cyan("/!\\ WARNING: " + str)
 end
 def error_str(str)
-	red("*** ERROR *** " + str)
+    red("*** ERROR *** " + str)
 end
 def error(str)
     abort error_str(str)
@@ -554,10 +666,10 @@ end
 ### Octopress management ###
 ############################
 def check_octopress_setup()
-	unless File.directory?(source_dir)
-		print error_str("You haven't setup anything for Octopress yet\n")
-		error "You shall run `rake setup` and `rake theme:install` to setup Octopress concretely"
-	end
+    unless File.directory?(source_dir)
+        print error_str("You haven't setup anything for Octopress yet\n")
+        error "You shall run `rake setup` and `rake theme:install` to setup Octopress concretely"
+    end
 end
 
 ## List the available themes
@@ -623,7 +735,7 @@ def git_flow(name, type = 'feature', action = 'start', optional_args = '')
     error "Invalid action '#{action}'" unless ['start', 'finish'].include?(action)
     error "You must provide a name" if name == ''
     error "The name '#{name}' cannot contain spaces" if name =~ /\s+/
-	run %{git flow #{type} #{action} #{optional_args} #{name}}
+    run %{git flow #{type} #{action} #{optional_args} #{name}}
 end
 
 def git_flow_start(type, name, optional_args = '')
