@@ -1,6 +1,6 @@
 ###########################################################################################
 # Rakefile - Configuration file for rake (http://rake.rubyforge.org/)
-# Time-stamp: <Mer 2013-12-04 21:21 svarrette>
+# Time-stamp: <Mer 2013-12-04 22:56 svarrette>
 #
 # Copyright (c) 2013 Sebastien Varrette <Sebastien.Varrette@uni.lu>
 # .             http://varrette.gforge.uni.lu
@@ -66,7 +66,8 @@ SUBMODULES_DIR = ".submodules"
 POW_DIR        = File.expand_path( File.join(ENV['HOME'], '.pow') )
 # The below directory will host (after 'rake git:submodules:init') a reference configuration for this
 # Rakefile (useful in case of missed files)
-REFERENCE_SETUP_DIR = "#{SUBMODULES_DIR}/reference_setup"
+REFERENCE_SETUP_DIR    = "#{SUBMODULES_DIR}/reference_setup"
+OFFICIAL_OCTOPRESS_DIR = "#{INCLUDE_DIR}/octopress"
 
 # Main configuration files
 CONFIGFILE        = File.join(TOP_SRCDIR, '_config.yml')
@@ -85,6 +86,7 @@ CUSTOM_CONFIGFILE = File.join(TOP_SRCDIR, INCLUDE_DIR, 'custom_config.yml')
     "new_post_ext"   => "md",       # default new post file extension when using the new_post task
     "new_page_ext"   => "md",       # default new page file extension when using the new_page task
     "server_port"    => "4000",     # port for preview server eg. localhost:4000
+    "plugins"        => "plugins",  # Directory for (Jekyll) plugins
     # Git-flow
     :gitflow => {
         :branches => {
@@ -113,17 +115,17 @@ CUSTOM_CONFIGFILE = File.join(TOP_SRCDIR, INCLUDE_DIR, 'custom_config.yml')
             :extra  => ''
         }
     },
-	# Some Octopress configuration components
-	:octopress => {
-		:themes => [ 
-		            'https://github.com/Falkor/octopress-bootstrap.git',
-		            'https://github.com/kAworu/octostrap3.git'
-		           ],
-		:plugins => [
-		             'https://github.com/josephcc/octopress-cumulus.git'
-		            ]
+    # Some Octopress configuration components
+    :octopress => {
+        :themes => [
+                    'https://github.com/Falkor/octopress-bootstrap.git',
+                    'https://github.com/kAworu/octostrap3.git'
+                   ],
+        :plugins => [
+                     'https://github.com/josephcc/octopress-cumulus.git'
+                    ]
 
-	}
+    }
 }
 # Load config file (and the local customization)
 ::CONFIG.deep_merge!( YAML::load_file( CONFIGFILE ) ) if File.exists?("#{CONFIGFILE}")
@@ -154,8 +156,7 @@ themes_dir      = "#{::CONFIG['themes_dir']}"     # directory for theme files
 new_post_ext    = "#{::CONFIG['new_post_ext']}"   # default new post file extension when using the new_post task
 new_page_ext    = "#{::CONFIG['new_page_ext']}"   # default new page file extension when using the new_page task
 server_port     = "#{::CONFIG['server_port']}"    # port for preview server eg. localhost:4000
-
-
+plugins_dir     = "#{::CONFIG['plugins']}"        # Directory for (Jekyll) plugins
 
 ## Git submodules useful for the setup of the repository
 GIT_SUBMODULES = {
@@ -163,10 +164,14 @@ GIT_SUBMODULES = {
         :url     => "https://github.com/Falkor/www.git",
         :destdir => File.dirname( REFERENCE_SETUP_DIR )
     },
-    'octopress' => {
+    "#{File.basename( OFFICIAL_OCTOPRESS_DIR )}" => {
         :url     => "git://github.com/imathis/octopress.git",
-        :destdir => "#{INCLUDE_DIR}"
+        :destdir => File.dirname( OFFICIAL_OCTOPRESS_DIR )
     },
+    'octopress-cumulus' => {
+        :url     => "https://github.com/josephcc/octopress-cumulus.git",
+        :destdir => "#{INCLUDE_DIR}/3rdparty_plugins"
+    }
     # 'octopress-bootstrap' => {
     #     :url     => "https://github.com/Falkor/octopress-bootstrap.git",
     #     :destdir => "#{themes_dir}"
@@ -175,10 +180,6 @@ GIT_SUBMODULES = {
     #     :url     => "https://github.com/kAworu/octostrap3.git",
     #     :destdir => "#{themes_dir}"
     # },
-    # 'octopress-cumulus' => {
-    #     :url     => "https://github.com/josephcc/octopress-cumulus.git",
-    #     :destdir => "#{INCLUDE_DIR}/3rdparty_plugins"
-    # }
 }
 
 
@@ -247,7 +248,7 @@ namespace "git" do
         desc "Initialize the Git submodules required for this setup"
         task :init do |task|
             info task.comment
-			run %{ 
+            run %{
                git submodule init
                git submodule update
             }
@@ -401,15 +402,45 @@ task :setup  => [ "git:flow:init", "git:submodules:init" ]  do |t, args|
     run %{
         cd #{TOP_SRCDIR}
         bash -l -c "#{rvm_cmd.chomp}"
-        bundle install 
+        bundle install
     }
 
-    # initialise the themes
-	::CONFIG[:octopress][:themes].each do |url| 
-		Rake::Task["theme:source:install"].reenable
-		Rake::Task["theme:source:install"].invoke( "#{url}" )
-	end
+    # initialize the themes
+    ::CONFIG[:octopress][:themes].each do |url|
+        Rake::Task["theme:source:install"].reenable
+        Rake::Task["theme:source:install"].invoke( "#{url}" )
+    end
 
+    # Configure plugins
+    info "setup Octopress plugins"
+    run %{mkdir -p #{plugins_dir}} unless File.directory?("#{plugins_dir}")
+    default_plugins_installed = []
+    Dir["#{OFFICIAL_OCTOPRESS_DIR}/#{plugins_dir}/*"].each do |path_f|
+        f = File.basename( path_f )
+        next if File.exists?("#{plugins_dir}/#{f}")
+        relpath_octodir = Pathname.new(
+                                       File.realpath( "#{OFFICIAL_OCTOPRESS_DIR}/#{plugins_dir}" )
+                                       ).relative_path_from( Pathname.new(File.realpath( plugins_dir )) )
+        run %{
+           ln -sf #{relpath_octodir}/#{f} #{plugins_dir}/#{f}
+           git add #{plugins_dir}/#{f}
+        }
+        default_plugins_installed << "#{plugins_dir}/#{f}"
+    end
+    run %{git commit -s -m 'initialize default Octopress plugins' #{default_plugins_installed.join(' ')}} unless default_plugins_installed.empty?
+
+
+    # link on official files whenever it's possible
+    info "configure Octopress using official files"
+    [ "config.rb", "config.ru" ].each do |f|
+        next unless (File.exists?("#{TOP_SRCDIR}/#{OFFICIAL_OCTOPRESS_DIR}/#{f}") && ! File.exists?("#{TOP_SRCDIR}/#{f}"))
+        subinfo "initialize #{f}"
+        run %{
+              ln -sf #{OFFICIAL_OCTOPRESS_DIR}/#{f} .
+              git add #{f}
+              git commit -s -m 'add symlink #{f} (to the default corresponding octopress file)' #{f}
+            }
+    end
 
 
 
@@ -417,7 +448,7 @@ task :setup  => [ "git:flow:init", "git:submodules:init" ]  do |t, args|
     # unless File.exists?("#{TOP_SRCDIR}/Gemfile")
     #     warn "Gemfile is not present - do you want to setup one for Octopress?"
     #     really_continue?
-	    
+
     # end
 
 
@@ -523,7 +554,7 @@ namespace :theme do
         ##############  theme:source:install  ####################
         desc "Install a new theme source"
         task :install, :url do |t, args|
-			if args.url
+            if args.url
                 url = args.url
             else
                 url = get_stdin("Enter a git repository url for the theme: ")
@@ -531,17 +562,17 @@ namespace :theme do
             abort("Not a git url") unless url =~ /\.git$/
             theme = File.basename("#{url}").gsub(/\.git$/, '')
             error("Empty theme name") unless theme
-			info "#{t.comment} for the theme '#{theme}'" 
-			if File.directory?("#{themes_dir}/#{theme}")
-				warn "The theme '#{theme}' already exists"
-			else 
-				info "about to install the theme '#{theme}' from the git repository #{url}"
-				really_continue?
-				run %{
+            info "#{t.comment} for the theme '#{theme}'"
+            if File.directory?("#{themes_dir}/#{theme}")
+                warn "The theme '#{theme}' already exists"
+            else
+                info "about to install the theme '#{theme}' from the git repository '#{url}'"
+                really_continue?
+                run %{
                 git submodule add #{url} #{themes_dir}/#{theme}
                 git commit -s -m "[theme] add new theme '#{theme}' from git source" .gitmodules #{themes_dir}/#{theme}
                 }
-			end 
+            end
         end
 
         ###############  theme:source:delete  ###################
@@ -628,6 +659,9 @@ def cyan(str)
 end
 def info(str)
     puts green("=> " + str)
+end
+def subinfo(str)
+    puts green("   \__" + str)
 end
 def warn(str)
     puts cyan("/!\\ WARNING: " + str)
